@@ -14,6 +14,7 @@ Options:
   -v --version              Show version.
   -c --count <count>        Number of reads to split  [default: 1000000].
   -m --merge                Merge overlapping regions before split.
+  -s --subsplit <method>    Subsplit regions by exact or guess of reads  [default: exact].
 """
 
 import algorithm
@@ -21,7 +22,6 @@ import docopt
 import hts
 import math
 import os
-import sequtils
 import streams
 import strutils
 import tables
@@ -133,7 +133,7 @@ proc readIndex(fs: FileStream, sizes: var seq[seq[int]], total_bytes: var seq[in
     var n_no_coor = fs.readUint64()
     fs.close()
 
-proc splitRegion(chrom: string, contig: int, start_pos: int, end_pos: int, sizes: seq[seq[int]], count: int, bytes_per_read: float, out_bed: File) =
+proc splitRegion(chrom: string, contig: int, start_pos: int, end_pos: int, sizes: seq[seq[int]], count: int, bytes_per_read: float, bam:Bam, subsplit_method: string, out_bed: File) =
     # split a region and write to file
     var pos = start_pos
     var counter = 0.0
@@ -143,14 +143,30 @@ proc splitRegion(chrom: string, contig: int, start_pos: int, end_pos: int, sizes
         let est_reads = float(chunk)/bytes_per_read
         counter += est_reads
         if counter > float(count):
-            if counter > 1.5*float(count) and ceil(counter/float(count)).int > 1:
-                let splits = ceil(counter/float(count)).int
-                let size = (((chunk_ind+1)*chunk_size - pos)/splits).int
-                for split in 0..<splits-1:
-                    echo chrom & ":" & $(pos + split * size) & "-" & $((pos + (split + 1) * size) - 1) & "\t" & $(counter/splits.float)
-                    out_bed.writeLine(chrom & "\t" & $(pos + split * size) & "\t" & $((pos + (split + 1) * size) - 1) & "\t" & $(counter/splits.float))
-                echo chrom & ":" & $(pos + (splits-1) * size) & "-" & $((chunk_ind+1)*chunk_size - 1) & "\t" & $(counter/splits.float)
-                out_bed.writeLine(chrom & "\t" & $(pos + (splits-1) * size) & "\t" & $((chunk_ind+1)*chunk_size - 1) & "\t" & $(counter/splits.float))
+            if counter > 1.4*float(count) and ceil(counter/float(count)).int > 1:
+                if subsplit_method == "guess":
+                    let splits = ceil(counter/float(count)).int
+                    let size = (((chunk_ind+1)*chunk_size - pos)/splits).int
+                    for split in 0..<splits-1:
+                        echo chrom & ":" & $(pos + split * size) & "-" & $((pos + (split + 1) * size) - 1) & "\t" & $(counter/splits.float)
+                        out_bed.writeLine(chrom & "\t" & $(pos + split * size) & "\t" & $((pos + (split + 1) * size) - 1) & "\t" & $(counter/splits.float))
+                    echo chrom & ":" & $(pos + (splits-1) * size) & "-" & $((chunk_ind+1)*chunk_size - 1) & "\t" & $(counter/splits.float)
+                    out_bed.writeLine(chrom & "\t" & $(pos + (splits-1) * size) & "\t" & $((chunk_ind+1)*chunk_size - 1) & "\t" & $(counter/splits.float))
+                else:
+                    # from https://github.com/papaemmelab/split_bed_by_reads/blob/master/src/split_bed_by_reads.nim
+                    echo "Trying subsplit"
+                    var subcounter = 0
+                    var substart = pos.int64 
+                    for record in bam.query(chrom,pos,((chunk_ind+1)*chunk_size - 1)):
+                        inc(subcounter)
+                        if subcounter mod count == 0:
+                            if record.start > substart: # if ending on high coverage position
+                                echo chrom,":",substart,"-",record.start," ",subcounter
+                                out_bed.writeLine(chrom & "\t" & $substart & "\t" & $record.start & "\t" & $subcounter)
+                            substart = record.start + 1
+                            subcounter = 0
+                    echo chrom,":",substart,"-",((chunk_ind+1)*chunk_size - 1)," ",subcounter
+                    out_bed.writeLine(chrom & "\t" & $substart & "\t" & $((chunk_ind+1)*chunk_size - 1) & "\t" & $subcounter)
             else:
                 echo chrom & ":" & $pos & "-" & $((chunk_ind+1)*chunk_size - 1) & "\t" & $counter
                 out_bed.writeLine(chrom & "\t" & $pos & "\t" & $((chunk_ind+1)*chunk_size - 1) & "\t" & $counter)
@@ -187,6 +203,7 @@ proc main() =
     echo "BAM: ", $args["<BAM>"]
     echo "OUT: ", $args["<OUT>"]
     echo "Count: ", $args["--count"], " reads"
+    echo "Subsplit Method: ", $args["--subsplit"]
     echo ""
 
     var
@@ -200,6 +217,7 @@ proc main() =
     let
         time = now()
         split = parseInt($args["--count"])
+        subsplit_method = $args["--subsplit"]
         out_bed = open($args["<OUT>"], fmWrite)
         bam_path = $args["<BAM>"]
 
@@ -212,6 +230,10 @@ proc main() =
         idx_path = bam_path.replace(".bam",".bai")
     else:
         raise newException(ValueError, "Bam index could not be found")
+
+    # validate subsplit method
+    if not @["exact", "guess"].contains(subsplit_method):
+        raise newException(ValueError, "Provided subsplit method is not exact or guess")
 
     # resolve overlaps
     if args["--merge"]:
@@ -230,7 +252,7 @@ proc main() =
         if not regions.contains(chrom) or regions[chrom].len == 0:
             continue
         for region in regions[chrom]:
-            splitRegion(chrom, target.tid, region.start, region.stop, sizes, split, bytes_per_read, out_bed)
+            splitRegion(chrom, target.tid, region.start, region.stop, sizes, split, bytes_per_read, bam, subsplit_method, out_bed)
     echo ""
     echo "Elapsed time: " & $(now() - time)
     close(bam)
