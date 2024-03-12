@@ -1,6 +1,6 @@
 # Package
 
-version       = "1.0.0"
+version       = "1.0.1"
 author        = "Max Levine"
 description   = "Split bed by bai estimated read counts command-line tool"
 license       = "MIT"

@@ -198,7 +198,7 @@ proc mergeRegions(regions: TableRef[string, seq[region_t]]): TableRef[string, se
 
 
 proc main() =
-    let args = docopt(doc, version = "0.1.0")
+    let args = docopt(doc, version = "v1.0.1")
     echo "BED: ", $args["<BED>"]
     echo "BAM: ", $args["<BAM>"]
     echo "OUT: ", $args["<OUT>"]
@@ -244,7 +244,8 @@ proc main() =
     readIndex(idx, sizes, total_bytes, total_reads)
 
     # calculate average bytes per read
-    let bytes_per_read = sum(total_bytes[0 .. 20]/total_reads[0 .. 20])/float(total_reads[0 .. 20].len)
+    let total_chrs = min(21, total_bytes.len)
+    let bytes_per_read = sum(total_bytes[0 .. (total_chrs - 1)]) / sum(total_reads[0 .. (total_chrs-1)])
 
     # loop through regions and split
     for target in targets(bam.hdr):
@@ -259,4 +260,4 @@ proc main() =
     close(out_bed)
 
 when isMainModule:
-  main()
+    main()
