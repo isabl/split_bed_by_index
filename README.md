@@ -52,7 +52,10 @@ Options:
   -v --version              Show version.
   -c --count <count>        Number of reads to split  [default: 1000000].
   -m --merge                Merge overlapping regions before split.
+  -s --subsplit <method>    Subsplit regions by exact or guess of reads  [default: exact].
 ```
+
+If there are significantly more reads in a 16kb chunk than the split count one of two subsplit methods can be used. **exact** method will count the reads in this chunk and split accordingly. **guess** method will split the chunk into equal size regions based on the total number of estimated reads. The exact method will be slow when used but will be accurate, while the guess method is instantaneous but can be very inaccurate if the reads are not distributed evenly. 
 
 # Credit
 * Max Levine [@mflevine](https://github.com/mflevine)
