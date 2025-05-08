@@ -130,7 +130,7 @@ proc readIndex(fs: FileStream, sizes: var seq[seq[int]], total_bytes: var seq[in
                     sizes[chr].add(int(last_read) - int(ioffset))
             offset = int(ioffset)
         total_bytes.add(sum(sizes[chr]))
-    var n_no_coor = fs.readUint64()
+    # var n_no_coor = fs.readUint64() // optional
     fs.close()
 
 proc splitRegion(chrom: string, contig: int, start_pos: int, end_pos: int, sizes: seq[seq[int]], count: int, bytes_per_read: float, bam:Bam, subsplit_method: string, out_bed: File) =
